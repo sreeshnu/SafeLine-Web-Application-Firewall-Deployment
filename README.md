@@ -2,9 +2,9 @@
 
 ## What is this project?
 
-This project is about putting a **Web Application Firewall (WAF)** in front of a web application and checking whether it can stop a harmful web request before the request reaches the real application.
+This project is about putting a **Web Application Firewall (WAF)** in front of a web application and testing whether it can identify and block a suspicious web request.
 
-I used **SafeLine** as the WAF and an **Apache web server** as the application behind it. I then sent a SQL Injection test through the WAF and checked what happened.
+I used **SafeLine** as the WAF and **Apache** as the web server behind it. The main test was a SQL Injection request sent through the protected application.
 
 The simple idea is:
 
@@ -15,91 +15,85 @@ User / Attacker
       v
   SafeLine WAF
       |
-      | Safe request only
+      | allowed request
       v
  Apache Web App
 ```
 
-If SafeLine decides that a request is harmful, it can stop the request instead of passing it to Apache.
+If SafeLine decides that a request is malicious, it can block the request instead of allowing it through to the backend.
 
-SafeLine describes itself as a self-hosted WAF and reverse proxy. It is designed to inspect web traffic and protect applications from attacks such as SQL injection, XSS, path traversal and other common web attacks. citeturn0search0
-
----
+SafeLine is a self-hosted WAF and reverse proxy. It inspects web traffic and provides protection against common web attacks.
 
 ## Why did I build this?
 
-I wanted to understand WAFs in a practical way rather than only reading about them.
+I wanted to understand how a WAF works in a real lab instead of only reading about it.
 
-The main goal was simple:
+The goal was simple:
 
-> **Install the WAF, put it in front of a web application, send a known SQL Injection test, and see whether the WAF actually stops it.**
+> **Put SafeLine in front of a web application, send a controlled SQL Injection test, and check whether the WAF detects and blocks it.**
 
-This also helped me understand an important security idea: installing a security tool is not enough. We should test whether it is doing the job we expect it to do.
-
----
+The test also showed why installing a security tool is not enough. We need to generate traffic and check the result.
 
 ## Lab setup
 
-| Component | Used for |
+| Component | Purpose |
 |---|---|
-| Ubuntu | SafeLine and web-server environment |
-| SafeLine | WAF / reverse proxy |
-| Apache | Web application server |
-| Browser | Sending the web requests |
-| SQL Injection test | Checking the WAF detection |
+| Ubuntu | Lab system running the WAF and web server |
+| SafeLine | Web Application Firewall / reverse proxy |
+| Apache | Backend web server |
+| Browser | Sends normal and test web requests |
+| SQL Injection test | Checks the WAF detection |
 
-The Apache application was listening on port **81**, while SafeLine was placed in front of it.
+In the original lab, Apache listened on port **81** and SafeLine was placed in front of it.
 
-### How the traffic moved
+### Traffic flow
+
+```text
+Normal request
+     |
+     v
+ SafeLine
+     |
+     | allowed
+     v
+ Apache :81
+```
+
+For a suspicious request:
 
 ```text
 SQL Injection test
-       |
-       v
-  SafeLine WAF
-       |
-       | blocked
-       X
-
-or
-
-Normal request
-       |
-       v
-  SafeLine WAF
-       |
-       | allowed
-       v
- Apache (port 81)
+     |
+     v
+ SafeLine
+     |
+     | blocked
+     X
 ```
 
-This is the main idea behind a reverse-proxy WAF: the user talks to the WAF first, and the WAF decides whether the request should continue to the backend application. citeturn0search0
-
----
+The important point is that SafeLine is the first layer receiving the web request.
 
 ## What I did
 
 ### 1. Installed SafeLine
 
-SafeLine was installed on Ubuntu using its installation method.
+I installed SafeLine in the Ubuntu lab environment so that I could test WAF behaviour against a local web application.
 
-The reason for installing it on the Ubuntu system was to create a local security lab where the WAF and the web application could be tested without exposing a real website.
+For a new installation, use the current SafeLine documentation because installation methods and requirements can change between releases.
 
-SafeLine's current project documentation provides an installation guide and Docker-based deployment information. citeturn0search0
-
-### 2. Opened the SafeLine management panel
+### 2. Opened the management panel
 
 After installation, I accessed the SafeLine management panel.
 
-The management panel was available on port **9443** in this lab.
+The original lab used port **9443** for the management panel.
 
-The management panel is where the protected website is added and where security events can be reviewed.
+The panel was used to configure the protected website and review security events.
 
-### 3. Added the web application
+### 3. Added the Apache application
 
-I added the Apache application to SafeLine as a protected website.
+I configured the Apache application as the backend protected by SafeLine.
 
-The lab used:
+The original lab configuration was:
 
 - Domain: `secure-lab`
 - Local mapping: `192.168.1.99`
@@ -107,18 +101,12 @@ The lab used:
 - Mode: **Reverse Proxy**
 - Backend: `http://192.168.1.99:81`
 
-The important part is the last line.
-
-SafeLine was listening in front of Apache, while Apache continued running on port 81.
-
-So the user did **not** directly access Apache.
-
-Instead:
+So the path was:
 
 ```text
 Browser
    |
-   | http://secure-lab
+   | HTTP request
    v
 SafeLine :80
    |
@@ -129,106 +117,110 @@ Apache :81
 
 ### 4. Tested a SQL Injection request
 
-I then sent a SQL Injection test through the protected application:
+I sent this controlled test request to the lab application:
 
 ```text
 http://secure-lab/index.php?id=1' OR '1'='1
 ```
 
-This was done only against the intentionally configured lab application.
+This was performed only against the intentionally configured lab system.
 
-The purpose was not to break a real website. The purpose was to see whether the WAF could recognise a suspicious request.
+The purpose was to check whether SafeLine would recognise the request as suspicious.
 
-### 5. Checked the result
+### 5. Checked the response
 
-The request did not reach the application normally.
+The browser returned an **Access Forbidden** response.
 
-Instead, the browser showed an **Access Forbidden** response.
+This showed that the request was blocked at the SafeLine layer.
 
-That gave the first important result:
-
-> SafeLine identified the request as malicious and stopped it before it reached Apache.
+I am not claiming from this response alone that the request definitely never reached Apache. That would require checking the backend access logs as additional evidence.
 
 ### 6. Checked the SafeLine attack log
 
-I then checked the attack log in the SafeLine dashboard.
+The SafeLine dashboard recorded the event as a **SQL Injection** attack and showed information such as the source and event time.
 
-The event was recorded as a **SQL Injection** attack and included information such as the source IP and time of the event.
+This gave me two useful pieces of information:
 
-This is useful because a WAF is not only about blocking traffic. The security team also needs to know **what was blocked and why**.
-
----
+1. The request was blocked.
+2. The WAF recorded the security event for investigation.
 
 ## What the test proved
 
-The test gave us a simple before/after understanding:
-
-| Request | Result |
+| Test | Result |
 |---|---|
-| Normal web request | Can be passed to Apache |
+| Normal request | Intended to pass through SafeLine to Apache |
 | SQL Injection test | Blocked by SafeLine |
-| Blocked request | Recorded in SafeLine attack log |
+| SQL Injection test | Recorded in the SafeLine attack log |
 
-SafeLine's documented capabilities include blocking web attacks and recording security events, along with features such as rate limiting and access controls. citeturn0search0
+The result demonstrates the basic WAF workflow: inspect a web request, decide whether it matches a security rule, and block suspicious traffic.
 
----
+## How I would make the validation stronger
+
+A good WAF test should check both sides of the proxy.
+
+For example:
+
+```text
+Send test request
+       |
+       v
+Check SafeLine response
+       |
+       v
+Check SafeLine attack log
+       |
+       v
+Check Apache access log
+       |
+       v
+Compare the results
+```
+
+Checking the Apache log is important when we want to make a stronger claim about whether a blocked request reached the backend.
 
 ## Why the reverse proxy matters
 
-A common question is:
-
-**"Why not just install the WAF on the web application itself?"**
-
-A reverse-proxy setup gives us a separate layer in front of the application.
-
-The application does not need to understand every incoming security threat itself. SafeLine can inspect the HTTP request first.
+Without a WAF:
 
 ```text
-Without WAF
-
 Client ───────────────> Apache
+```
 
+With a WAF:
 
-With SafeLine
-
+```text
 Client ─────> SafeLine ─────> Apache
                  |
                  └── suspicious request = BLOCK
 ```
 
-This separation is one of the main things I wanted to understand from this project.
-
----
+The reverse proxy gives us a separate security layer in front of the application.
 
 ## What I learned
 
-### 1. A WAF is not just a firewall
+### 1. A WAF is different from a normal network firewall
 
-A traditional network firewall mainly controls network connections and ports.
+A network firewall mainly controls network connections and ports.
 
-A WAF looks much more closely at **web requests**.
+A WAF focuses on **web traffic** and can inspect parts of HTTP requests such as URLs, parameters and request content.
 
-For example, it can inspect things such as URLs, parameters and request content to identify suspicious web traffic.
+### 2. A security tool must be tested
 
-### 2. Installing a security tool is not enough
+Installing SafeLine successfully does not prove that the WAF is protecting the application correctly.
 
-A successful installation does not prove that a security tool is working.
+The controlled SQL Injection test gave me a simple way to check its behaviour.
 
-The SQL Injection test gave me a way to check the actual protection.
+### 3. Blocking and logging are both important
 
-### 3. Logs are important
+Blocking stops the suspicious request, while logging gives the analyst information that can be investigated later.
 
-The block itself tells us that something happened.
+### 4. Evidence matters
 
-The attack log gives us more information about the event, which is important when investigating security incidents.
+A browser error page tells us that the request was rejected, but additional backend logs can give stronger evidence about where the request stopped.
 
-### 4. Security should be tested in a controlled environment
+### 5. Testing should be controlled
 
-The SQL Injection test was performed against the lab application, not an unrelated public website.
-
-That makes the test safe and repeatable.
-
----
+The SQL Injection test was performed against a local lab application that was intentionally configured for testing.
 
 ## Skills demonstrated
 
@@ -236,24 +228,20 @@ That makes the test safe and repeatable.
 - WAF Deployment
 - Reverse Proxy Configuration
 - SafeLine Configuration
-- SQL Injection Testing in a Lab
+- Controlled SQL Injection Testing
 - Security Event Analysis
 - Basic Web Traffic Investigation
 
----
-
 ## Important note
 
-This repository documents the lab and the results available from the original project. It does not claim that screenshots or raw terminal output are available when they are not included in the repository.
+This repository documents the original lab and the results available from it. It does not claim screenshots, raw terminal output, or backend-log evidence that is not stored in the repository.
 
 The goal is to explain the work clearly without adding fake evidence.
 
----
-
 ## References
 
-- SafeLine official project: https://github.com/chaitin/SafeLine
-- SafeLine documentation: https://docs.waf.chaitin.com/
+- [SafeLine official project](https://github.com/chaitin/SafeLine)
+- [SafeLine documentation](https://docs.waf.chaitin.com/)
 
 ---
 
